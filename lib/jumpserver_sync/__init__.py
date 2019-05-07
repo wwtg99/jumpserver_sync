@@ -1,0 +1,5 @@
+__prog__ = 'jumpsever_sync'
+__version__ = '0.1.0'
+__author__ = 'wuwentao'
+__author_email__ = 'wwtg99@126.com'
+__descr__ = 'Tools to sync large amount of instance into Jumpserver.'

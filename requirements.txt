@@ -1,0 +1,4 @@
+hsettings
+click
+colorama
+diskcache

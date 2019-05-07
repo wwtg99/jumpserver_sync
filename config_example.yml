@@ -1,0 +1,42 @@
+# Jumpserver configuration
+jumpserver:
+  # Base url for Jumpserver, ex: http://demo.jumpserver.com
+  base_url: ""
+  # User name that has admin role
+  user: ""
+  # User password
+  password: ""
+  # Login url
+  login_url: "/api/users/v1/auth/"
+# Cache configuration
+cache:
+  # Cache directory
+  dir: .jumpserver_cache
+  # Cache ttl time
+  ttl: 60
+# Log configuration
+log:
+  # log level
+  log_level: INFO
+# Instances provider configuration
+providers:
+  # Instances from AWS
+  aws:
+    # Profile settings, profile_name, region_name, aws_access_key_id, aws_secret_access_key
+    account1:
+      region_name: cn-northwest-1
+      profile_name: cn-northwest-1_account1
+# Tag selectors list
+tag_selectors:
+  - tags:
+    # Tags to match
+    - key: tag_name
+      value: tag_value
+    # Attributes to set if match, variables {number}, {hostname}, {ip}, {public_ip}, {account}, {region} are available
+    attrs:
+      admin_user: admin_user
+      domain: domain
+      labels:
+        - label1
+      nodes:
+        - node1

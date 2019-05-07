@@ -1,0 +1,21 @@
+# Distribution / packaging
+.*
+!.gitignore
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+.idea
+__pycache__
+*.pyc
+.pytest_cache/
+config.yml
