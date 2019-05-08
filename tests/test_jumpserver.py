@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath('lib'))
 import pytest
 from hsettings import Settings
 from jumpserver_sync.jumpserver import LabelTag
-from jumpserver_sync.jumpserver.clients import JumpserverClient, AdminUser, Domain, Node, Asset, Label
+from jumpserver_sync.jumpserver.clients import JumpserverClient, AdminUser, Domain, Node, Asset, Label, SystemUser
 from jumpserver_sync.assets import InstanceAsset, AssetAgent
 from jumpserver_sync.providers import get_provider, AssetsProvider, CompiledTag, TagSelector
 
@@ -294,6 +294,22 @@ class TestClient:
         res2 = cli.get_resource(res_id=res['id'])
         assert res2 == {}
 
+    def test_system_user(self, settings):
+        cli = SystemUser(settings=settings)
+        system_user_name = 'test_system_user_' + str(random.randint(100, 999))
+        data = {'name': system_user_name}
+        res = cli.post_resource(data=data)
+        assert 'id' in res and res['id']
+        assert res['name'] == system_user_name
+        res2 = cli.get_resource(res_id=res['id'])
+        assert res == res2
+        res2 = cli.push(res['id'])
+        assert 'task' in res2 and res2['task']
+        res2 = cli.delete_resource(res_id=res['id'])
+        assert res2 is True
+        res2 = cli.get_resource(res_id=res['id'])
+        assert res2 == {}
+
     def test_node(self, settings):
         # Test jumpserver contain node Default/ops/prod
         cli = Node(settings=settings)
@@ -302,6 +318,24 @@ class TestClient:
         assert nid is not None
         n = cli.get_node_full_name(nid)
         assert n == node
+
+    def test_asset(self, settings):
+        cli = Asset(settings=settings)
+        ip = '127.0.0.1'
+        hostname = 'test_hostname_' + str(random.randint(100, 999))
+        data = {'ip': ip, 'hostname': hostname}
+        res = cli.post_resource(data=data)
+        assert 'id' in res and res['id']
+        assert res['ip'] == ip
+        assert res['hostname'] == hostname
+        res2 = cli.get_resource(res_id=res['id'])
+        assert res == res2
+        res2 = cli.test(res['id'])
+        assert 'task' in res2 and res2['task']
+        res2 = cli.delete_resource(res_id=res['id'])
+        assert res2 is True
+        res2 = cli.get_resource(res_id=res['id'])
+        assert res2 == {}
 
 
 class TestAssetAgent:
@@ -475,5 +509,3 @@ class TestAssetAgent:
             assert agent.get_asset_id(a) is not None
             res = agent.delete_asset(res.id)
             assert res is True
-
-

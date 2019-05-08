@@ -5,7 +5,7 @@ from colorama import Style, Back, Fore
 from hsettings import Settings
 from hsettings.loaders import DictLoader, YamlLoader
 from jumpserver_sync import __prog__, __version__
-from jumpserver_sync.workflow import AssetsSync
+from jumpserver_sync.workflow import Workflow, DumpSettings, AssetsSync, AssetsProfileSync, AssetsCleanSync
 
 
 @click.command()
@@ -15,6 +15,8 @@ from jumpserver_sync.workflow import AssetsSync
 @click.option('-p', '--profile', help='profile name')
 @click.option('-i', '--instance-ids', help='instance id or comma separated list')
 @click.option('-e', '--provider', help='instance provider', type=click.Choice(['aws']), default='aws')
+@click.option('--all/--no-all', help='force to apply all assets, sync all assets by provider and if it used with --clean, will clean all assets', default=False)
+@click.option('--clean', help='clean assets in Jumpserver, by default only delete assets that not alive', is_flag=True, default=False)
 @click.option('--push/--no-push', help='push system user after add asset or not', default=False)
 @click.option('--push-check/--no-push-check', help='push and check system user after add asset or not', default=False)
 @click.option('--force-push/--no-force-push', help='force push system user after add asset or not', default=False)
@@ -33,6 +35,10 @@ def cli(version, **kwargs):
 
 
 class Application:
+
+    CONF_DUMP_KEY = 'app.dump'
+    CONF_LOG_LEVEL_KEY = 'log.log_level'
+    CONF_LOG_FORMATTER_KEY = 'log.log_formatter'
 
     default_config = {
         'jumpserver': {
@@ -53,6 +59,8 @@ class Application:
             'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
         },
         'app': {
+            'instance_all': False,
+            'clean': False,
             'push': False,
             'push_check': False,
             'test_asset': False,
@@ -64,19 +72,21 @@ class Application:
     }
 
     args_mapping = {
-        'dump': 'app.dump',
-        'provider': 'app.provider',
-        'profile': 'app.profile',
-        'instance_ids': 'app.instance_ids',
-        'push': 'app.push',
-        'push_check': 'app.push_check',
-        'force_push': 'app.force_push',
-        'test': 'app.test_asset',
-        'check_timeout': 'app.check_timeout',
-        'check_interval': 'app.check_interval',
-        'push_max_tries': 'app.push_max_tries',
-        'push_system_users': 'app.push_system_users',
-        'show_task_log': 'app.show_task_log',
+        'dump': CONF_DUMP_KEY,
+        'provider': Workflow.CONF_PROVIDER_KEY,
+        'profile': Workflow.CONF_PROFILE_KEY,
+        'all': Workflow.CONF_INSTANCE_ALL_KEY,
+        'clean': Workflow.CONF_INSTANCE_CLEAN_KEY,
+        'instance_ids': Workflow.CONF_INSTANCE_IDS_KEY,
+        'push': Workflow.CONF_PUSH_KEY,
+        'push_check': Workflow.CONF_PUSH_CHECK_KEY,
+        'force_push': Workflow.CONF_FORCE_PUSH_KEY,
+        'test': Workflow.CONF_TEST_ASSET_KEY,
+        'check_timeout': Workflow.CONF_CHECK_TIMEOUT_KEY,
+        'check_interval': Workflow.CONF_CHECK_INTERVAL_KEY,
+        'push_max_tries': Workflow.CONF_CHECK_MAX_TRIES_KEY,
+        'push_system_users': Workflow.CONF_PUSH_SYSTEM_USERS_KEY,
+        'show_task_log': Workflow.CONF_SHOW_TASK_LOG_KEY,
     }
 
     def __init__(self, args):
@@ -87,15 +97,21 @@ class Application:
         self._init_logger()
 
     def run(self):
-        if self.settings.get('app.dump', False) is True:
-            print(self.settings.as_dict())
-        elif self.settings.get(AssetsSync.CONF_INSTANCE_IDS_KEY):
+        if self.settings.get(self.CONF_DUMP_KEY, False) is True:
+            workflow = DumpSettings(settings=self.settings)
+        elif self.settings.get(Workflow.CONF_INSTANCE_CLEAN_KEY, False) is True:
+            workflow = AssetsCleanSync(settings=self.settings)
+        elif self.settings.get(Workflow.CONF_INSTANCE_ALL_KEY, False) is True:
             workflow = AssetsSync(settings=self.settings)
-            workflow.run()
+        elif self.settings.get(Workflow.CONF_INSTANCE_IDS_KEY):
+            workflow = AssetsSync(settings=self.settings)
+        else:
+            workflow = AssetsProfileSync(settings=self.settings)
+        workflow.run()
 
     def _init_logger(self):
-        log_level = self._settings.get('log.log_level', 'INFO')
-        log_formatter = self._settings.get('log.log_formatter')
+        log_level = self._settings.get(self.CONF_LOG_LEVEL_KEY, 'INFO')
+        log_formatter = self._settings.get(self.CONF_LOG_FORMATTER_KEY)
         root_logger = logging.getLogger()
         root_logger.setLevel(log_level)
         logger_levels = [

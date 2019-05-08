@@ -217,7 +217,7 @@ class JumpserverClient(CachedResource):
         if token is None:
             user = self.settings.get(self.USER_KEY)
             pwd = self.settings.get(self.PWD_KEY)
-            logging.info('Login into Jumpserver by user {}'.format(user))
+            logging.debug('Login into Jumpserver by user {}'.format(user))
             res = requests.post(url=self.base_url.rstrip('/') + login_url, json={'username': user, 'password': pwd})
             if res.status_code == 200:
                 res = res.json()
@@ -303,6 +303,7 @@ class SystemUser(JumpserverClient):
         task_id = task['task'] if 'task' in task else None
         if task_id:
             celery = Celery(settings=self.settings)
+            time.sleep(3)  # sleep some time for job to start
             res = celery.is_task_finished(task_id=task_id, timeout=timeout, interval=interval, show_output=show_output)
             if res and self.PASSED_FLAG in celery.output_log:
                 return True
@@ -332,6 +333,7 @@ class SystemUser(JumpserverClient):
                 task = self.push(uid=uid, asset_id=asset_id)
                 task_id = task['task'] if 'task' in task else None
                 if task_id:
+                    time.sleep(3)  # sleep some time for job to start
                     res = celery.is_task_finished(task_id=task_id, timeout=timeout, interval=interval,
                                                   show_output=show_output)
                     if res and self.is_checked(uid=uid, asset_id=asset_id, timeout=timeout, interval=interval, show_output=show_output):
@@ -458,6 +460,7 @@ class Asset(JumpserverClient):
         task_id = task['task'] if 'task' in task else None
         if task_id:
             celery = Celery(settings=self.settings)
+            time.sleep(3)  # sleep some time for job to start
             res = celery.is_task_finished(task_id=task_id, timeout=timeout, interval=interval, show_output=show_output)
             if res and self.PASSED_FLAG in celery.output_log:
                 return True

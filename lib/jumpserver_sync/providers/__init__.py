@@ -224,6 +224,10 @@ def get_provider(name, settings, profile) -> AssetsProvider:
     :param profile:
     :return:
     """
+    if not name:
+        raise JumpserverError('Provider name not provided!')
+    if not profile:
+        raise JumpserverError('Profile not provided!')
     cls = settings.get('{}.{}'.format(KEY_PROVIDER_CLS, name))
     if cls and cls != NOTSET:
         cls = import_string(cls)

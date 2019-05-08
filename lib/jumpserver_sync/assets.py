@@ -127,7 +127,7 @@ class AssetAgent:
         """
         Check whether asset is linked to Jumpserver.
 
-        :param asset:
+        :param InstanceAsset asset:
         :return: bool
         """
         for f in self._check_fields:
@@ -139,7 +139,7 @@ class AssetAgent:
         """
         Link asset data to Jumpserver.
 
-        :param asset:
+        :param InstanceAsset asset:
         :return: asset
         """
         if asset.admin_user and asset.admin_user_id is None:
@@ -192,7 +192,7 @@ class AssetAgent:
         """
         Sync asset to Jumpserver, create if not exists or update if exists.
 
-        :param asset:
+        :param InstanceAsset asset:
         :return: asset
         """
         aid = self.get_asset_id(asset)
@@ -206,7 +206,7 @@ class AssetAgent:
         """
         Create Jumpserver asset.
 
-        :param asset:
+        :param InstanceAsset asset:
         :return: asset
         """
         if not self.is_asset_linked(asset):
@@ -225,8 +225,8 @@ class AssetAgent:
         """
         Update Jumpserver asset.
 
-        :param asset_id:
-        :param asset:
+        :param str asset_id:
+        :param InstanceAsset asset:
         :return: asset
         """
         if not self.is_asset_linked(asset):
@@ -251,6 +251,18 @@ class AssetAgent:
         logging.info('Delete asset {}'.format(asset_id))
         client = self.get_client(key='asset', client_cls=Asset)
         return client.delete_resource(res_id=asset_id)
+
+    def list_assets(self):
+        """
+        List Jumpserver assets.
+
+        :return: assets generator
+        """
+        client = self.get_client(key='asset', client_cls=Asset)
+        for res in client.list_resources():
+            a = self.from_jumpserver(res)
+            if a:
+                yield a
 
     def check_assets_alive(self, asset_id, timeout=30, interval=3, show_output=False):
         """
