@@ -18,14 +18,13 @@ cache:
 log:
   # log level
   log_level: INFO
-# Instances provider configuration
-providers:
-  # Instances from AWS
-  aws:
-    # Profile settings, profile_name, region_name, aws_access_key_id, aws_secret_access_key
-    account1:
-      region_name: cn-northwest-1
-      profile_name: cn-northwest-1_account1
+# Profile configuration
+profiles:
+  # Profile settings, required type, for aws type, can configure profile_name, region_name, aws_access_key_id, aws_secret_access_key
+  account1:
+    type: aws
+    region_name: cn-northwest-1
+    profile_name: cn-northwest-1_account1
 # Tag selectors list
 tag_selectors:
   - tags:
@@ -40,3 +39,13 @@ tag_selectors:
         - label1
       nodes:
         - node1
+# Listening configuration
+listensing:
+    # listening provider name
+    us0066_sqs:
+      # listening on AWS SQS
+      type: sqs
+      # Use this profile to receive message
+      profile: account1
+      # SQS URL
+      queue: "queue_url"

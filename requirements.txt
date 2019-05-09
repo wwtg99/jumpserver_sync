@@ -2,3 +2,6 @@ hsettings
 click
 colorama
 diskcache
+requests
+boto3
+pyyaml

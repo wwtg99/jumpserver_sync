@@ -10,7 +10,8 @@ from hsettings import Settings
 from jumpserver_sync.jumpserver import LabelTag
 from jumpserver_sync.jumpserver.clients import JumpserverClient, AdminUser, Domain, Node, Asset, Label, SystemUser
 from jumpserver_sync.assets import InstanceAsset, AssetAgent
-from jumpserver_sync.providers import get_provider, AssetsProvider, CompiledTag, TagSelector
+from jumpserver_sync.providers.base import CompiledTag, TagSelector, AssetsProvider, TaskProvider, get_provider
+from jumpserver_sync.utils import *
 
 
 class TestAsset:
@@ -47,12 +48,11 @@ class TestProvider:
                 'password': 'admin',
                 'login_url': '/api/users/v1/auth/'
             },
-            'providers': {
-                'aws': {
-                    'us0066': {
-                        'region_name': 'us-east-1',
-                        'profile_name': 'us-east-1_0066'
-                    }
+            'profiles': {
+                'us0066': {
+                    'type': 'aws',
+                    'region_name': 'us-east-1',
+                    'profile_name': 'us-east-1_0066'
                 }
             },
             'cache': {
@@ -64,7 +64,12 @@ class TestProvider:
                 'log_formatter': '[%(levelname)s] %(asctime)s : %(message)s',
             },
             'provider_cls': {
-                'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
+                'asset': {
+                    'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
+                },
+                'task': {
+                    'sqs': 'jumpserver_sync.providers.aws.AwsSqsTaskProvider'
+                }
             },
             'tag_selectors': [
                 {
@@ -77,7 +82,17 @@ class TestProvider:
                         'admin_user': 'test_admin_user'
                     }
                 }
-            ]
+            ],
+            'listening': {
+                'us0066_sqs': {
+                    'type': 'sqs',
+                    'profile': 'us0066',
+                    'queue': 'https://sqs.us-east-1.amazonaws.com/006694404643/ops_test'
+                }
+            },
+            'app': {
+                'profile': 'us0066',
+            }
         })
 
     def test_compiled_tag(self):
@@ -169,32 +184,57 @@ class TestProvider:
         assert sel_asset.nodes == ['test_test1']
         assert sel_asset.admin_user == 'test_127.0.0.1'
 
-    def test_provider(self, settings):
+    def test_asset_provider(self, settings):
         provider = 'aws'
-        profile = 'us0066'
-        p = get_provider(provider, settings, profile)
+        p = get_provider(settings=settings, provider_type='asset', provider_name=provider)
         assert isinstance(p, AssetsProvider)
-        assert p.profile == profile
-        assert p.config == settings.get('providers.{}.{}'.format(provider, profile))
+        assert p.profile.profile_name == 'us0066'
+        assert p.profile.profile_type == 'aws'
         assert len(p.get_tag_selectors()) == 1
         for i in range(len(p.get_tag_selectors())):
             selector = p.get_tag_selectors()[i]
             assert len(selector.tags) == 1
             for j in range(len(selector.tags)):
                 t = selector.tags[j]
-                assert t.key == settings.get('tag_selectors')[i]['tags'][j]['key']
-                assert t.value == settings.get('tag_selectors')[i]['tags'][j]['value']
+                assert t.key == settings.get(CONF_TAG_SELECTORS_KEY)[i]['tags'][j]['key']
+                assert t.value == settings.get(CONF_TAG_SELECTORS_KEY)[i]['tags'][j]['value']
 
     def test_aws_list_assets(self, settings):
         # should configure aws profile first
         from jumpserver_sync.providers.aws import AwsAssetsProvider
-        provider = AwsAssetsProvider(settings=settings, profile='us0066')
+        provider = AwsAssetsProvider(settings=settings, provider_type='asset', provider_name='aws')
         asset_ids = []
         for a in provider.list_assets(limit=2):
             assert a.account == 'us0066'
             asset_ids.append(a.number)
         for a in provider.list_assets(asset_ids=asset_ids):
             assert a.number in asset_ids
+
+    def test_task_provider(self, settings):
+        provider = 'sqs'
+        p = get_provider(settings=settings, provider_type='task', provider_name=provider)
+        assert isinstance(p, TaskProvider)
+        assert p.profile.profile_name == 'us0066'
+        assert p.profile.profile_type == 'aws'
+
+    def test_aws_sqs_task_assets(self, settings):
+        from jumpserver_sync.providers.aws import AwsSqsTaskProvider
+        provider = AwsSqsTaskProvider(settings=settings, provider_type='task', provider_name='sqs')
+        queue_url = 'https://sqs.us-east-1.amazonaws.com/006694404643/ops_test'
+        msg = 'i-12345678'
+        listen_provider = 'us0066_sqs'
+        conf = settings.get('{}.{}'.format(CONF_LISTEN_CONF_KEY, listen_provider))
+        provider.configure(**conf)
+        assert provider.queue_url == queue_url
+        assert provider.max_size == 1
+        res = provider.send_message(queue_url=queue_url, message=msg)
+        assert 'MessageId' in res and res['MessageId']
+        for task in provider.generate():
+            assert task.task_settings != settings
+            assert task.task_settings.get(CONF_INSTANCE_IDS_KEY) == msg
+            assert task.task_settings.get(AwsSqsTaskProvider.CONF_RECEIPT_KEY, None) is not None
+            res = provider.finish_task(task=task)
+            assert 'ResponseMetadata' in res and res['ResponseMetadata']
 
 
 class TestClient:
@@ -208,12 +248,11 @@ class TestClient:
                 'password': 'admin',
                 'login_url': '/api/users/v1/auth/'
             },
-            'providers': {
-                'aws': {
-                    'us0066': {
-                        'region_name': 'us-east-1',
-                        'profile_name': 'us-east-1_0066'
-                    }
+            'profiles': {
+                'us0066': {
+                    'type': 'aws',
+                    'region_name': 'us-east-1',
+                    'profile_name': 'us-east-1_0066'
                 }
             },
             'cache': {
@@ -225,7 +264,12 @@ class TestClient:
                 'log_formatter': '[%(levelname)s] %(asctime)s : %(message)s',
             },
             'provider_cls': {
-                'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
+                'asset': {
+                    'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
+                },
+                'task': {
+                    'sqs': 'jumpserver_sync.providers.aws.AwsSqsTaskProvider'
+                }
             },
             'tag_selectors': [
                 {
@@ -238,7 +282,10 @@ class TestClient:
                         'admin_user': 'test_admin_user'
                     }
                 }
-            ]
+            ],
+            'app': {
+                'profile': 'us0066'
+            }
         })
 
     def test_login(self, settings):
@@ -251,19 +298,19 @@ class TestClient:
         url = 'test'
         method = 'get'
         p = cli.build_request(url=url, method=method)
-        assert p['url'] == settings.get('jumpserver.base_url') + '/test/'
+        assert p['url'] == settings.get(CONF_BASE_URL_KEY) + '/test/'
         assert p['method'] == method
         assert 'Authorization' in p['headers']
         url = '/api/users/v1/auth/'
         method = 'post'
         p = cli.build_request(url=url, method=method)
-        assert p['url'] == settings.get('jumpserver.base_url') + '/api/users/v1/auth/'
+        assert p['url'] == settings.get(CONF_BASE_URL_KEY) + '/api/users/v1/auth/'
         assert p['method'] == method
         assert 'Authorization' in p['headers']
         url = '/api/users/v1/auth'
         method = 'post'
         p = cli.build_request(url=url, method=method)
-        assert p['url'] == settings.get('jumpserver.base_url') + '/api/users/v1/auth/'
+        assert p['url'] == settings.get(CONF_BASE_URL_KEY) + '/api/users/v1/auth/'
         assert p['method'] == method
         assert 'Authorization' in p['headers']
 
@@ -355,12 +402,11 @@ class TestAssetAgent:
                 'password': 'admin',
                 'login_url': '/api/users/v1/auth/'
             },
-            'providers': {
-                'aws': {
-                    'us0066': {
-                        'region_name': 'us-east-1',
-                        'profile_name': 'us-east-1_0066'
-                    }
+            'profiles': {
+                'us0066': {
+                    'type': 'aws',
+                    'region_name': 'us-east-1',
+                    'profile_name': 'us-east-1_0066'
                 }
             },
             'cache': {
@@ -372,7 +418,12 @@ class TestAssetAgent:
                 'log_formatter': '[%(levelname)s] %(asctime)s : %(message)s',
             },
             'provider_cls': {
-                'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
+                'asset': {
+                    'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
+                },
+                'task': {
+                    'sqs': 'jumpserver_sync.providers.aws.AwsSqsTaskProvider'
+                }
             },
             'tag_selectors': [
                 {
@@ -386,7 +437,10 @@ class TestAssetAgent:
                         'labels': [{'key': 'account', 'value': 'us0066'}]
                     }
                 }
-            ]
+            ],
+            'app': {
+                'profile': 'us0066'
+            }
         })
         yield settings
         domain = Domain(settings)
@@ -494,8 +548,8 @@ class TestAssetAgent:
         # list assets
         agent = AssetAgent(settings)
         provider = 'aws'
-        profile = 'us0066'
-        p = get_provider(provider, settings, profile)
+        p = get_provider(settings=settings, provider_type='asset', provider_name=provider)
+        assert isinstance(p, AssetsProvider)
         for a in p.list_assets(limit=2):
             assert agent.is_asset_linked(a) is False
             a = agent.link_asset(a)

@@ -1,28 +1,13 @@
 import logging
 from jumpserver_sync.assets import AssetAgent
-from jumpserver_sync.providers import get_provider
-from jumpserver_sync.utils import JumpserverError
+from jumpserver_sync.providers.base import get_provider, AssetsProvider, TaskProvider
+from jumpserver_sync.utils import *
 
 
 class Workflow:
     """
     Base workflow class.
     """
-
-    CONF_PROVIDER_KEY = 'app.provider'
-    CONF_PROFILE_KEY = 'app.profile'
-    CONF_TEST_ASSET_KEY = 'app.test_asset'
-    CONF_PUSH_KEY = 'app.push'
-    CONF_PUSH_CHECK_KEY = 'app.push_check'
-    CONF_FORCE_PUSH_KEY = 'app.force_push'
-    CONF_CHECK_TIMEOUT_KEY = 'app.check_timeout'
-    CONF_CHECK_INTERVAL_KEY = 'app.check_interval'
-    CONF_CHECK_MAX_TRIES_KEY = 'app.push_max_tries'
-    CONF_PUSH_SYSTEM_USERS_KEY = 'app.push_system_users'
-    CONF_SHOW_TASK_LOG_KEY = 'app.show_task_log'
-    CONF_INSTANCE_IDS_KEY = 'app.instance_ids'
-    CONF_INSTANCE_ALL_KEY = 'app.instance_all'
-    CONF_INSTANCE_CLEAN_KEY = 'app.clean'
 
     def __init__(self, settings):
         self._settings = settings
@@ -49,18 +34,6 @@ class Workflow:
         """
         pass
 
-    def get_provider(self):
-        """
-        Get asset provider.
-
-        :return: provider
-        """
-        return get_provider(
-            name=self.settings.get(self.CONF_PROVIDER_KEY),
-            settings=self.settings,
-            profile=self.settings.get(self.CONF_PROFILE_KEY)
-        )
-
     @property
     def settings(self):
         return self._settings
@@ -77,28 +50,45 @@ class DumpSettings(Workflow):
 
 
 class AssetsSync(Workflow):
+    """
+    Sync assets to Jumpserver by profile and asset id.
+    """
 
     META_PROFILE_KEY = 'account'
+    PROVIDER_TYPE = 'asset'
 
     def run_without_exception(self):
         assets = self.sync_assets()
         # test assets alive
-        if self.settings.get(self.CONF_TEST_ASSET_KEY, False) is True and len(assets) > 0:
+        if self.settings.get(CONF_TEST_ASSET_KEY, False) is True and len(assets) > 0:
             self.check_assets_alive(assets)
         # check system_user connect
-        if self.settings.get(self.CONF_PUSH_CHECK_KEY, False) is True and len(assets) > 0:
+        if self.settings.get(CONF_PUSH_CHECK_KEY, False) is True and len(assets) > 0:
             self.check_system_users_connective(assets)
 
     def sync_assets(self):
+        """
+        Get and sync assets to Jumpserver.
+
+        :return: assets to sync
+        """
         assets = []
-        ins = self.settings.get(self.CONF_INSTANCE_IDS_KEY).split(',') if self.settings.get(self.CONF_INSTANCE_IDS_KEY, None) else None
-        for a in self.get_provider().list_assets(asset_ids=ins):
+        ins = self.settings.get(CONF_INSTANCE_IDS_KEY).split(',') \
+            if self.settings.get(CONF_INSTANCE_IDS_KEY, None) else None
+        provider = get_provider(
+            settings=self.settings,
+            provider_type=self.PROVIDER_TYPE,
+            provider_name=self.settings.get(CONF_PROVIDER_KEY, None)
+        )
+        if not isinstance(provider, AssetsProvider):
+            raise JumpserverError('Invalid provider {}'.format(provider))
+        for a in provider.list_assets(asset_ids=ins):
             a = self.agent.sync_asset(a)
             if a:
                 assets.append(a)
                 # push system_user to assets
-                if self.settings.get(self.CONF_PUSH_KEY, False) is True:
-                    users = self.settings.get(self.CONF_PUSH_SYSTEM_USERS_KEY, None)
+                if self.settings.get(CONF_PUSH_KEY, False) is True:
+                    users = self.settings.get(CONF_PUSH_SYSTEM_USERS_KEY, None)
                     if users:
                         logging.info('Push system users {} to asset {}'.format(users, a))
                         self.agent.push_system_users(asset_id=a.id, system_users=users)
@@ -108,9 +98,15 @@ class AssetsSync(Workflow):
         return assets
 
     def check_assets_alive(self, assets):
-        timeout = self.settings.get(self.CONF_CHECK_TIMEOUT_KEY)
-        interval = self.settings.get(self.CONF_CHECK_INTERVAL_KEY)
-        show_log = self.settings.get(self.CONF_SHOW_TASK_LOG_KEY)
+        """
+        Check whether assets is alive.
+
+        :param assets:
+        :return:
+        """
+        timeout = self.settings.get(CONF_CHECK_TIMEOUT_KEY)
+        interval = self.settings.get(CONF_CHECK_INTERVAL_KEY)
+        show_log = self.settings.get(CONF_SHOW_TASK_LOG_KEY)
         logging.info('Check assets alive ...')
         for a in assets:
             res = self.agent.check_assets_alive(asset_id=a.id, timeout=timeout, interval=interval, show_output=show_log)
@@ -120,12 +116,18 @@ class AssetsSync(Workflow):
                 logging.error('Asset {} is not alive!'.format(a))
 
     def check_system_users_connective(self, assets):
-        timeout = self.settings.get(self.CONF_CHECK_TIMEOUT_KEY)
-        interval = self.settings.get(self.CONF_CHECK_INTERVAL_KEY)
-        max_tries = self.settings.get(self.CONF_CHECK_MAX_TRIES_KEY)
-        show_log = self.settings.get(self.CONF_SHOW_TASK_LOG_KEY)
-        force_push = self.settings.get(self.CONF_FORCE_PUSH_KEY)
-        users = self.settings.get(self.CONF_PUSH_SYSTEM_USERS_KEY, None)
+        """
+        Check whether system users is pushed to assets.
+
+        :param assets:
+        :return:
+        """
+        timeout = self.settings.get(CONF_CHECK_TIMEOUT_KEY)
+        interval = self.settings.get(CONF_CHECK_INTERVAL_KEY)
+        max_tries = self.settings.get(CONF_CHECK_MAX_TRIES_KEY)
+        show_log = self.settings.get(CONF_SHOW_TASK_LOG_KEY)
+        force_push = self.settings.get(CONF_FORCE_PUSH_KEY)
+        users = self.settings.get(CONF_PUSH_SYSTEM_USERS_KEY, None)
         logging.info('Push system_users to assets ...')
         for a in assets:
             self.agent.push_check_system_users(
@@ -148,7 +150,7 @@ class AssetsCleanSync(AssetsSync):
 
     def sync_assets(self):
         jms_assets = []
-        profile = self.settings.get(self.CONF_PROFILE_KEY, None)
+        profile = self.settings.get(CONF_PROFILE_KEY, None)
         # get all assets from Jumpserver by profile
         for a in self.agent.list_assets():
             if profile:
@@ -159,10 +161,10 @@ class AssetsCleanSync(AssetsSync):
                 jms_assets.append(a)
         # check assets alive if not specify --all
         del_assets = []
-        if self.settings.get(self.CONF_INSTANCE_ALL_KEY, False) is False:
-            timeout = self.settings.get(self.CONF_CHECK_TIMEOUT_KEY)
-            interval = self.settings.get(self.CONF_CHECK_INTERVAL_KEY)
-            show_log = self.settings.get(self.CONF_SHOW_TASK_LOG_KEY)
+        if self.settings.get(CONF_INSTANCE_ALL_KEY, False) is False:
+            timeout = self.settings.get(CONF_CHECK_TIMEOUT_KEY)
+            interval = self.settings.get(CONF_CHECK_INTERVAL_KEY)
+            show_log = self.settings.get(CONF_SHOW_TASK_LOG_KEY)
             for a in jms_assets:
                 res = self.agent.check_assets_alive(asset_id=a.id, timeout=timeout, interval=interval,
                                                     show_output=show_log)
@@ -180,7 +182,7 @@ class AssetsCleanSync(AssetsSync):
         return []
 
 
-class AssetsProfileSync(AssetsSync):
+class AssetsSmartSync(AssetsSync):
     """
     Sync assets automatically.
     Add assets to Jumpserver if assets provided by provider not exists.
@@ -189,11 +191,18 @@ class AssetsProfileSync(AssetsSync):
 
     def sync_assets(self):
         assets = []
-        profile = self.settings.get(self.CONF_PROFILE_KEY, None)
+        profile = self.settings.get(CONF_PROFILE_KEY, None)
         # get all assets from provider by profile
         provider_assets_number = {}
         provider_assets = []
-        for a in self.get_provider().list_assets():
+        provider = get_provider(
+            settings=self.settings,
+            provider_type=self.PROVIDER_TYPE,
+            provider_name=self.settings.get(CONF_PROVIDER_KEY, None)
+        )
+        if not isinstance(provider, AssetsProvider):
+            raise JumpserverError('Invalid provider {}'.format(provider))
+        for a in provider.list_assets():
             provider_assets.append(a)
             provider_assets_number[a.number] = len(provider_assets) - 1
         # get all assets from Jumpserver by profile
@@ -211,8 +220,8 @@ class AssetsProfileSync(AssetsSync):
             if a:
                 assets.append(a)
                 # push system_user to assets
-                if self.settings.get(self.CONF_PUSH_KEY, False) is True:
-                    users = self.settings.get(self.CONF_PUSH_SYSTEM_USERS_KEY, None)
+                if self.settings.get(CONF_PUSH_KEY, False) is True:
+                    users = self.settings.get(CONF_PUSH_SYSTEM_USERS_KEY, None)
                     if users:
                         logging.info('Push system users {} to asset {}'.format(users, a))
                         self.agent.push_system_users(asset_id=a.id, system_users=users)
@@ -229,3 +238,57 @@ class AssetsProfileSync(AssetsSync):
                 del_num += 1
         logging.info('Delete {} assets'.format(del_num))
         return assets
+
+
+class AssetsListenSync(AssetsSync):
+    """
+    Listening on task providers and call AssetsSync workflow to handle task.
+    """
+
+    PROVIDER_TYPE = 'task'
+
+    def run(self):
+        listen_provider = self.settings.get(CONF_LISTEN_PROVIDER_KEY, None)
+        while True:
+            try:
+                for provider in self.get_task_provider(provider=listen_provider):
+                    for task in provider.generate():
+                        if self.process_task(task=task):
+                            provider.finish_task(task=task)
+                        else:
+                            provider.fail_task(task=task)
+            except JumpserverError as e1:
+                logging.error(e1)
+            except ImportError as e2:
+                logging.error(e2)
+
+    def process_task(self, task):
+        try:
+            workflow = AssetsSync(settings=task.task_settings)
+            workflow.run()
+            return True
+        except Exception as e:
+            return False
+
+    def get_task_provider(self, provider=None):
+        if provider:
+            conf = self.settings.get('{}.{}'.format(CONF_LISTEN_CONF_KEY, provider), None)
+            if not conf:
+                raise JumpserverError('Invalid listening provider {}'.format(provider))
+            if 'type' not in conf:
+                raise JumpserverError('Invalid type in listening provider {}'.format(provider))
+            name = conf['type']
+            del conf['type']
+            if 'profile' not in conf:
+                raise JumpserverError('Invalid profile in listening provider {}'.format(provider))
+            profile = conf['profile']
+            del conf['profile']
+            settings = self.settings.clone().set(CONF_PROFILE_KEY, profile)
+            p = get_provider(settings=settings, provider_type=self.PROVIDER_TYPE, provider_name=name)
+            if isinstance(p, TaskProvider):
+                p.configure(**conf)
+                yield p
+        else:
+            providers = self.settings.get(CONF_LISTEN_CONF_KEY, [])
+            for provider in providers:
+                yield self.get_task_provider(provider=provider)

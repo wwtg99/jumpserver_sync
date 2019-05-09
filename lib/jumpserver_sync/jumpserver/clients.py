@@ -3,15 +3,14 @@ import requests
 import time
 from hsettings import Settings
 from diskcache import Cache
-from jumpserver_sync.utils import JumpserverAuthError
+from jumpserver_sync.utils import JumpserverAuthError, CONF_BASE_URL_KEY, CONF_CACHE_DIR_KEY, CONF_CACHE_TTL_KEY, \
+    CONF_LOGIN_URL_KEY, CONF_USER_KEY, CONF_PWD_KEY
 
 
 class RestfulResource:
     """
     Base class for Jumpserver restful resource.
     """
-
-    BASE_URL_KEY = 'jumpserver.base_url'
 
     base_url = ''
     resource = ''
@@ -23,7 +22,7 @@ class RestfulResource:
         :param kwargs:
         """
         self.settings = settings or Settings()
-        self.base_url = self.settings.get(self.BASE_URL_KEY) or ''
+        self.base_url = self.settings.get(CONF_BASE_URL_KEY) or ''
 
     def list_resources(self, **kwargs):
         """
@@ -148,13 +147,10 @@ class RestfulResource:
 
 class CachedResource(RestfulResource):
 
-    CACHE_DIR_KEY = 'cache.dir'
-    CACHE_TTL_KEY = 'cache.ttl'
-
     def __init__(self, settings=None, **kwargs):
         super().__init__(settings=settings, **kwargs)
-        self._cache_dir = self.settings.get(self.CACHE_DIR_KEY, '.jumpserver_dir')
-        self._cache_ttl = self.settings.get(self.CACHE_TTL_KEY, 60)
+        self._cache_dir = self.settings.get(CONF_CACHE_DIR_KEY, '.jumpserver_dir')
+        self._cache_ttl = self.settings.get(CONF_CACHE_TTL_KEY, 60)
 
     def get_cache(self, key, default=None):
         if self._cache_dir:
@@ -205,18 +201,15 @@ class CachedResource(RestfulResource):
 class JumpserverClient(CachedResource):
 
     CACHE_TOKEN_KEY = 'jms_token'
-    USER_KEY = 'jumpserver.user'
-    PWD_KEY = 'jumpserver.password'
-    LOGIN_URL_KEY = 'jumpserver.login_url'
 
     def get_token(self):
-        login_url = self.settings.get(self.LOGIN_URL_KEY)
+        login_url = self.settings.get(CONF_LOGIN_URL_KEY)
         if not login_url:
             raise JumpserverAuthError('Invalid login url {}'.format(login_url))
         token = self.get_cache(self.CACHE_TOKEN_KEY)
         if token is None:
-            user = self.settings.get(self.USER_KEY)
-            pwd = self.settings.get(self.PWD_KEY)
+            user = self.settings.get(CONF_USER_KEY)
+            pwd = self.settings.get(CONF_PWD_KEY)
             logging.debug('Login into Jumpserver by user {}'.format(user))
             res = requests.post(url=self.base_url.rstrip('/') + login_url, json={'username': user, 'password': pwd})
             if res.status_code == 200:
@@ -328,7 +321,8 @@ class SystemUser(JumpserverClient):
         celery = Celery(settings=self.settings)
         tries = 0
         while tries < max_tries:
-            if force_push or not self.is_checked(uid=uid, asset_id=asset_id, timeout=timeout, interval=interval, show_output=show_output):
+            if force_push or not self.is_checked(
+                    uid=uid, asset_id=asset_id, timeout=timeout, interval=interval, show_output=show_output):
                 force_push = False
                 task = self.push(uid=uid, asset_id=asset_id)
                 task_id = task['task'] if 'task' in task else None
@@ -336,14 +330,16 @@ class SystemUser(JumpserverClient):
                     time.sleep(3)  # sleep some time for job to start
                     res = celery.is_task_finished(task_id=task_id, timeout=timeout, interval=interval,
                                                   show_output=show_output)
-                    if res and self.is_checked(uid=uid, asset_id=asset_id, timeout=timeout, interval=interval, show_output=show_output):
+                    if res and self.is_checked(
+                            uid=uid, asset_id=asset_id, timeout=timeout, interval=interval, show_output=show_output):
                         return True
                 else:
                     logging.warning('Failed to push system_user {} to asset {}'.format(uid, asset_id))
             else:
                 return True
             tries += 1
-        logging.error('Push system_user {} failed to asset {} because reach max tries {}'.format(uid, asset_id,  max_tries))
+        logging.error('Push system_user {} failed to asset {} because reach max tries {}'
+                      .format(uid, asset_id,  max_tries))
         return False
 
 

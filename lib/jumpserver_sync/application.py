@@ -1,22 +1,51 @@
 import logging
 import click
 import yaml
-from colorama import Style, Back, Fore
+from colorama import Style, Fore
 from hsettings import Settings
 from hsettings.loaders import DictLoader, YamlLoader
 from jumpserver_sync import __prog__, __version__
-from jumpserver_sync.workflow import Workflow, DumpSettings, AssetsSync, AssetsProfileSync, AssetsCleanSync
+from jumpserver_sync.utils import *
+from jumpserver_sync.workflow import DumpSettings, AssetsSync, AssetsSmartSync, AssetsCleanSync, AssetsListenSync
 
 
-@click.command()
-@click.option('--version', help='show version', is_flag=True, default=False)
-@click.option('--dump', help='Dump settings and exit', is_flag=True, default=False)
+@click.group()
+def cli(**kwargs):
+    """
+    Jumpserver sync tool.
+
+    This tool is useful to sync large amount of assets from cloud service (such as AWS) to Jumpserver.
+    """
+    pass
+
+
+@cli.command(short_help='Show version and exit.')
+def version(**kwargs):
+    """
+    Show version and exit.
+    """
+    click.echo('{} {}'.format(__prog__, __version__))
+
+
+@cli.command(short_help='Dump config file settings and exit.')
+@click.option('-c', '--config-file', help='config file path', type=click.File('r'), required=True)
+def dump(**kwargs):
+    """
+    Dump config file settings and exit.
+    """
+    app = Application(args=kwargs)
+    app.run_workflow(DumpSettings)
+
+
+@cli.command(short_help='Sync assets to Jumpserver.')
 @click.option('-c', '--config-file', help='config file path', type=click.File('r'))
+@click.option('-h', '--host', help='jumpserver host')
+@click.option('-u', '--user', help='jumpserver admin username')
+@click.option('-w', '--password', help='jumpserver admin password')
 @click.option('-p', '--profile', help='profile name')
 @click.option('-i', '--instance-ids', help='instance id or comma separated list')
 @click.option('-e', '--provider', help='instance provider', type=click.Choice(['aws']), default='aws')
-@click.option('--all/--no-all', help='force to apply all assets, sync all assets by provider and if it used with --clean, will clean all assets', default=False)
-@click.option('--clean', help='clean assets in Jumpserver, by default only delete assets that not alive', is_flag=True, default=False)
+@click.option('--all/--no-all', help='force to sync all assets from provider', default=False)
 @click.option('--push/--no-push', help='push system user after add asset or not', default=False)
 @click.option('--push-check/--no-push-check', help='push and check system user after add asset or not', default=False)
 @click.option('--force-push/--no-force-push', help='force push system user after add asset or not', default=False)
@@ -26,19 +55,79 @@ from jumpserver_sync.workflow import Workflow, DumpSettings, AssetsSync, AssetsP
 @click.option('--push-max-tries', help='max tries to push system_user', type=int)
 @click.option('--push-system-users', help='specify system_users to push, comma separated, default is to push all')
 @click.option('--show-task-log/--no-show-task-log', help='show task output log', default=False)
-def cli(version, **kwargs):
-    if version:
-        print('{} {}'.format(__prog__, __version__))
-        return
+def sync(**kwargs):
+    """
+    Sync assets from cloud service provider (such as AWS) to Jumpserver.
+
+    If --all option is specified, sync all assets produced by provider.
+    If --instance-ids option is specified, only sync assets specified.
+    Otherwise, will compare difference between Jumpserver and provider.
+    Add assets to Jumpserver if assets produced by provider not exists.
+    And delete assets in Jumpserver if assets not exists in provider.
+    """
     app = Application(args=kwargs)
-    app.run()
+    if app.settings.get(CONF_INSTANCE_ALL_KEY, False) is True:
+        # sync all assets
+        workflow = AssetsSync
+    elif app.settings.get(CONF_INSTANCE_IDS_KEY):
+        # sync specified instance-ids
+        workflow = AssetsSync
+    else:
+        # smart sync
+        workflow = AssetsSmartSync
+    app.run_workflow(workflow)
+
+
+@cli.command(short_help='Listening on queues to sync assets to Jumpserver.')
+@click.option('-c', '--config-file', help='config file path', type=click.File('r'))
+@click.option('-h', '--host', help='jumpserver host')
+@click.option('-u', '--user', help='jumpserver admin username')
+@click.option('-w', '--password', help='jumpserver admin password')
+@click.option('-l', '--listen-provider', help='listening task provider', type=click.Choice(['sqs']), default='sqs')
+@click.option('--push/--no-push', help='push system user after add asset or not', default=False)
+@click.option('--push-check/--no-push-check', help='push and check system user after add asset or not', default=False)
+@click.option('--force-push/--no-force-push', help='force push system user after add asset or not', default=False)
+@click.option('--test/--no-test', help='test asset alive after add asset or not', default=False)
+@click.option('--check-timeout', help='timeout seconds to check results', type=int)
+@click.option('--check-interval', help='interval seconds to wait between check', type=int)
+@click.option('--push-max-tries', help='max tries to push system_user', type=int)
+@click.option('--push-system-users', help='specify system_users to push, comma separated, default is to push all')
+@click.option('--show-task-log/--no-show-task-log', help='show task output log', default=False)
+def listen(**kwargs):
+    """
+    Listening on queues (such as AWS SQS) to sync assets to Jumpserver
+
+    If --listen-provider option is specified, listening on specified queue.
+    Otherwise listening on all configured queues.
+    """
+    app = Application(args=kwargs)
+    app.run_workflow(AssetsListenSync)
+
+
+@cli.command(short_help='Clean assets in Jumpserver.')
+@click.option('-c', '--config-file', help='config file path', type=click.File('r'))
+@click.option('-h', '--host', help='jumpserver host')
+@click.option('-u', '--user', help='jumpserver admin username')
+@click.option('-w', '--password', help='jumpserver admin password')
+@click.option('-p', '--profile', help='profile name')
+@click.option('-e', '--provider', help='instance provider', type=click.Choice(['aws']), default='aws')
+@click.option('--all/--no-all', help='force to clean all assets without test', default=False)
+@click.option('--check-timeout', help='timeout seconds to check results', type=int)
+@click.option('--check-interval', help='interval seconds to wait between check', type=int)
+@click.option('--show-task-log/--no-show-task-log', help='show task output log', default=False)
+def clean(**kwargs):
+    """
+    Clean assets in Jumpserver.
+
+    By default it will only delete assets that not alive.
+    Use --profile option to specify assets from which profile.
+    Use --all to delete all assets.
+    """
+    app = Application(args=kwargs)
+    app.run_workflow(AssetsCleanSync)
 
 
 class Application:
-
-    CONF_DUMP_KEY = 'app.dump'
-    CONF_LOG_LEVEL_KEY = 'log.log_level'
-    CONF_LOG_FORMATTER_KEY = 'log.log_formatter'
 
     default_config = {
         'jumpserver': {
@@ -56,37 +145,52 @@ class Application:
             'log_formatter': '[%(levelname)s] %(asctime)s : %(message)s',
         },
         'provider_cls': {
-            'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
+            'asset': {
+                'aws': 'jumpserver_sync.providers.aws.AwsAssetsProvider'
+            },
+            'task': {
+                'sqs': 'jumpserver_sync.providers.aws.AwsSqsTaskProvider'
+            }
         },
+        'profiles': {},
+        'tag_selectors': [],
+        'listening': {},
         'app': {
+            'provider': '',
+            'profile': '',
             'instance_all': False,
-            'clean': False,
+            'instance_ids': None,
             'push': False,
             'push_check': False,
+            'force_push': False,
             'test_asset': False,
             'check_timeout': 30,
             'check_interval': 3,
             'push_max_tries': 3,
-            'show_task_log': False
-        }
+            'push_system_users': None,
+            'show_task_log': False,
+            'listen_provider': ''
+        },
     }
 
     args_mapping = {
-        'dump': CONF_DUMP_KEY,
-        'provider': Workflow.CONF_PROVIDER_KEY,
-        'profile': Workflow.CONF_PROFILE_KEY,
-        'all': Workflow.CONF_INSTANCE_ALL_KEY,
-        'clean': Workflow.CONF_INSTANCE_CLEAN_KEY,
-        'instance_ids': Workflow.CONF_INSTANCE_IDS_KEY,
-        'push': Workflow.CONF_PUSH_KEY,
-        'push_check': Workflow.CONF_PUSH_CHECK_KEY,
-        'force_push': Workflow.CONF_FORCE_PUSH_KEY,
-        'test': Workflow.CONF_TEST_ASSET_KEY,
-        'check_timeout': Workflow.CONF_CHECK_TIMEOUT_KEY,
-        'check_interval': Workflow.CONF_CHECK_INTERVAL_KEY,
-        'push_max_tries': Workflow.CONF_CHECK_MAX_TRIES_KEY,
-        'push_system_users': Workflow.CONF_PUSH_SYSTEM_USERS_KEY,
-        'show_task_log': Workflow.CONF_SHOW_TASK_LOG_KEY,
+        'host': CONF_BASE_URL_KEY,
+        'user': CONF_USER_KEY,
+        'password': CONF_PWD_KEY,
+        'provider': CONF_PROVIDER_KEY,
+        'profile': CONF_PROFILE_KEY,
+        'all': CONF_INSTANCE_ALL_KEY,
+        'instance_ids': CONF_INSTANCE_IDS_KEY,
+        'push': CONF_PUSH_KEY,
+        'push_check': CONF_PUSH_CHECK_KEY,
+        'force_push': CONF_FORCE_PUSH_KEY,
+        'test': CONF_TEST_ASSET_KEY,
+        'check_timeout': CONF_CHECK_TIMEOUT_KEY,
+        'check_interval': CONF_CHECK_INTERVAL_KEY,
+        'push_max_tries': CONF_CHECK_MAX_TRIES_KEY,
+        'push_system_users': CONF_PUSH_SYSTEM_USERS_KEY,
+        'show_task_log': CONF_SHOW_TASK_LOG_KEY,
+        'listen_provider': CONF_LISTEN_PROVIDER_KEY,
     }
 
     def __init__(self, args):
@@ -96,22 +200,13 @@ class Application:
         self._console_handlers = []
         self._init_logger()
 
-    def run(self):
-        if self.settings.get(self.CONF_DUMP_KEY, False) is True:
-            workflow = DumpSettings(settings=self.settings)
-        elif self.settings.get(Workflow.CONF_INSTANCE_CLEAN_KEY, False) is True:
-            workflow = AssetsCleanSync(settings=self.settings)
-        elif self.settings.get(Workflow.CONF_INSTANCE_ALL_KEY, False) is True:
-            workflow = AssetsSync(settings=self.settings)
-        elif self.settings.get(Workflow.CONF_INSTANCE_IDS_KEY):
-            workflow = AssetsSync(settings=self.settings)
-        else:
-            workflow = AssetsProfileSync(settings=self.settings)
-        workflow.run()
+    def run_workflow(self, workflow_cls):
+        ins = workflow_cls(settings=self.settings)
+        ins.run()
 
     def _init_logger(self):
-        log_level = self._settings.get(self.CONF_LOG_LEVEL_KEY, 'INFO')
-        log_formatter = self._settings.get(self.CONF_LOG_FORMATTER_KEY)
+        log_level = self._settings.get(CONF_LOG_LEVEL_KEY, 'INFO')
+        log_formatter = self._settings.get(CONF_LOG_FORMATTER_KEY)
         root_logger = logging.getLogger()
         root_logger.setLevel(log_level)
         logger_levels = [
