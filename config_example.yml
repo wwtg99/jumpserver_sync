@@ -42,7 +42,7 @@ tag_selectors:
 # Listening configuration
 listensing:
     # listening provider name
-    us0066_sqs:
+    test_sqs:
       # listening on AWS SQS
       type: sqs
       # Use this profile to receive message
