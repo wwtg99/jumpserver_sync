@@ -27,6 +27,7 @@ CONF_INSTANCE_IDS_KEY = 'app.instance_ids'
 CONF_INSTANCE_ALL_KEY = 'app.instance_all'
 CONF_LISTEN_PROVIDER_KEY = 'app.listen_provider'
 CONF_LISTEN_CONF_KEY = 'listening'
+CONF_LISTEN_INTERVAL_KEY = 'app.listen_interval'
 
 
 class JumpserverError(Exception):

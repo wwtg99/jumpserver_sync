@@ -49,3 +49,7 @@ listensing:
       profile: account1
       # SQS URL
       queue: "queue_url"
+      # max size to receive
+      max_size: 1
+      # specify system_users to push, comma separated
+      push_system_users: ""

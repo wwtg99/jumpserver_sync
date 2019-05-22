@@ -6,7 +6,7 @@ from hsettings import Settings
 from hsettings.loaders import DictLoader, YamlLoader
 from jumpserver_sync import __prog__, __version__
 from jumpserver_sync.utils import *
-from jumpserver_sync.workflow import DumpSettings, AssetsSync, AssetsSmartSync, AssetsCleanSync, AssetsListenSync
+from jumpserver_sync.workflow import DumpSettings, AssetsSync, AssetsSmartSync, AssetsCheckSync, AssetsCleanSync, AssetsListenSync
 
 
 @click.group()
@@ -83,7 +83,7 @@ def sync(**kwargs):
 @click.option('-h', '--host', help='jumpserver host')
 @click.option('-u', '--user', help='jumpserver admin username')
 @click.option('-w', '--password', help='jumpserver admin password')
-@click.option('-l', '--listen-provider', help='listening task provider', type=click.Choice(['sqs']), default='sqs')
+@click.option('-l', '--listen-provider', help='listening task provider name')
 @click.option('--push/--no-push', help='push system user after add asset or not', default=False)
 @click.option('--push-check/--no-push-check', help='push and check system user after add asset or not', default=False)
 @click.option('--force-push/--no-force-push', help='force push system user after add asset or not', default=False)
@@ -93,6 +93,7 @@ def sync(**kwargs):
 @click.option('--push-max-tries', help='max tries to push system_user', type=int)
 @click.option('--push-system-users', help='specify system_users to push, comma separated, default is to push all')
 @click.option('--show-task-log/--no-show-task-log', help='show task output log', default=False)
+@click.option('--listen-interval', help='interval seconds between two check', type=int, default=3)
 def listen(**kwargs):
     """
     Listening on queues (such as AWS SQS) to sync assets to Jumpserver
@@ -104,6 +105,21 @@ def listen(**kwargs):
     app.run_workflow(AssetsListenSync)
 
 
+@cli.command(short_help='Check assets alive in Jumpserver.')
+@click.option('-c', '--config-file', help='config file path', type=click.File('r'))
+@click.option('-h', '--host', help='jumpserver host')
+@click.option('-u', '--user', help='jumpserver admin username')
+@click.option('-w', '--password', help='jumpserver admin password')
+@click.option('-p', '--profile', help='profile name')
+@click.option('-i', '--instance-ids', help='instance id or comma separated list')
+@click.option('--check-timeout', help='timeout seconds to check results', type=int)
+@click.option('--check-interval', help='interval seconds to wait between check', type=int)
+@click.option('--show-task-log/--no-show-task-log', help='show task output log', default=True)
+def check(**kwargs):
+    app = Application(args=kwargs)
+    app.run_workflow(AssetsCheckSync)
+
+
 @cli.command(short_help='Clean assets in Jumpserver.')
 @click.option('-c', '--config-file', help='config file path', type=click.File('r'))
 @click.option('-h', '--host', help='jumpserver host')
@@ -111,7 +127,8 @@ def listen(**kwargs):
 @click.option('-w', '--password', help='jumpserver admin password')
 @click.option('-p', '--profile', help='profile name')
 @click.option('-e', '--provider', help='instance provider', type=click.Choice(['aws']), default='aws')
-@click.option('--all/--no-all', help='force to clean all assets without test', default=False)
+@click.option('-i', '--instance-ids', help='instance id or comma separated list')
+@click.option('--all/--no-all', help='force to clean assets without test', default=False)
 @click.option('--check-timeout', help='timeout seconds to check results', type=int)
 @click.option('--check-interval', help='interval seconds to wait between check', type=int)
 @click.option('--show-task-log/--no-show-task-log', help='show task output log', default=False)
@@ -169,7 +186,8 @@ class Application:
             'push_max_tries': 3,
             'push_system_users': None,
             'show_task_log': False,
-            'listen_provider': ''
+            'listen_provider': '',
+            'listen_interval': None,
         },
     }
 
@@ -191,6 +209,7 @@ class Application:
         'push_system_users': CONF_PUSH_SYSTEM_USERS_KEY,
         'show_task_log': CONF_SHOW_TASK_LOG_KEY,
         'listen_provider': CONF_LISTEN_PROVIDER_KEY,
+        'listen_interval': CONF_LISTEN_INTERVAL_KEY,
     }
 
     def __init__(self, args):

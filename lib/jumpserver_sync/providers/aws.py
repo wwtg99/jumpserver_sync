@@ -1,10 +1,11 @@
 import logging
 import json
 import boto3
+from botocore.exceptions import ClientError
 from jumpserver_sync.jumpserver import LabelTag
 from jumpserver_sync.providers.base import AssetsProvider, TaskProvider, Task
 from jumpserver_sync.assets import InstanceAsset
-from jumpserver_sync.utils import CONF_INSTANCE_IDS_KEY
+from jumpserver_sync.utils import CONF_INSTANCE_IDS_KEY, CONF_PROVIDER_KEY, CONF_PUSH_SYSTEM_USERS_KEY
 
 
 def get_aws_session(**kwargs):
@@ -35,33 +36,36 @@ class AwsAssetsProvider(AssetsProvider):
             # list all instances
             ins_list = ec2.instances.all()
         generated = 0
-        for instance in ins_list:
-            # only running instance
-            if instance.state['Name'] != 'running':
-                continue
-            # create asset
-            asset = self.create_asset_from_resource(
-                instance=instance,
-                account=self.profile.profile_name,
-                region=self._region
-            )
-            # check is ignored
-            if self.is_ignored(asset):
-                logging.info('Ignore instance {} because user add ignore tag!'.format(asset))
-                continue
-            # select asset
-            selected = False
-            for selector in self.get_tag_selectors():
-                a = selector.select(asset)
-                if a is not None:
-                    selected = True
-                    logging.info('Generate instance asset {}'.format(a))
-                    generated += 1
-                    yield a
-            if not selected:
-                logging.info('Instance asset {} did not match any selector, skip'.format(asset))
-            if limit and generated >= limit:
-                break
+        try:
+            for instance in ins_list:
+                # only running instance
+                if instance.state['Name'] != 'running':
+                    continue
+                # create asset
+                asset = self.create_asset_from_resource(
+                    instance=instance,
+                    account=self.profile.profile_name,
+                    region=self._region
+                )
+                # check is ignored
+                if self.is_ignored(asset):
+                    logging.info('Ignore instance {} because user add ignore tag or no Name tag!'.format(asset))
+                    continue
+                # select asset
+                selected = False
+                for selector in self.get_tag_selectors():
+                    a = selector.select(asset)
+                    if a is not None:
+                        selected = True
+                        logging.info('Generate instance asset {}'.format(a))
+                        generated += 1
+                        yield a
+                if not selected:
+                    logging.info('Instance asset {} did not match any selector, skip'.format(asset))
+                if limit and generated >= limit:
+                    break
+        except ClientError as e:
+            logging.error(str(e))
         logging.info('Generated {} instances'.format(generated))
 
     @classmethod
@@ -72,13 +76,14 @@ class AwsAssetsProvider(AssetsProvider):
                 if t['Key'] == 'Name':
                     tag_name = t['Value']
         hostname = cls.get_hostname(instance.instance_id, tag_name)
+        # restrict up to 128 chars
         comment = {
             'provider': 'aws',
             'account': account,
             'region': region,
             'instance_type': instance.instance_type,
-            'key_name': instance.key_name,
-            'image_id': instance.image_id
+            # 'key_name': instance.key_name,
+            # 'image_id': instance.image_id
         }
         obj = {
             'number': instance.instance_id,
@@ -86,7 +91,7 @@ class AwsAssetsProvider(AssetsProvider):
             'ip': instance.private_ip_address,
             'public_ip': instance.public_ip_address,
             'platform': instance.platform if instance.platform else 'Linux',
-            'labels': [LabelTag.create_tag(t) for t in instance.tags],
+            'labels': [LabelTag.create_tag(t) for t in instance.tags] if instance.tags else [],
             'account': account,
             'region': region or instance.placement['AvailabilityZone'][:-1],
         }
@@ -116,6 +121,8 @@ class AwsSqsTaskProvider(TaskProvider):
     """
 
     CONF_RECEIPT_KEY = 'sqs.receipt_handle'
+    AWS_CHECK_SOURCE = 'aws.ec2'
+    DEFAULT_TASK_WORKFLOW_CLS = 'jumpserver_sync.workflow.AssetsSync'
 
     def __init__(self, settings, provider_type, provider_name):
         super().__init__(settings, provider_type, provider_name)
@@ -123,10 +130,14 @@ class AwsSqsTaskProvider(TaskProvider):
         self._sqs_client = None
         self.queue_url = ''
         self.max_size = 1
+        self.push_system_users = None
+        self.asset_provider = 'aws'
+        self._task_workflow_cls = None
 
     def configure(self, **kwargs):
         self.queue_url = kwargs['queue'] if 'queue' in kwargs else ''
         self.max_size = kwargs['max_size'] if 'max_size' in kwargs else 1
+        self.push_system_users = kwargs['push_system_users'] if 'push_system_users' in kwargs else None
 
     def generate(self):
         msg = self.sqs_client.receive_message(QueueUrl=self.queue_url, MaxNumberOfMessages=self.max_size)
@@ -135,7 +146,9 @@ class AwsSqsTaskProvider(TaskProvider):
             for m in msg['Messages']:
                 s = self.extract_message(m)
                 if s:
-                    yield Task(task_settings=s, produced_by=self)
+                    task = Task(task_settings=s, produced_by=self)
+                    task.workflow_cls = self.task_workflow_cls
+                    yield task
         else:
             logging.info('No messages received')
             return None
@@ -157,7 +170,7 @@ class AwsSqsTaskProvider(TaskProvider):
         """
         if 'Body' in message and 'ReceiptHandle' in message:
             settings = self.settings.clone()
-            body = message['Body']
+            body = message['Body'].strip()
             settings.set(self.CONF_RECEIPT_KEY, message['ReceiptHandle'])
             if body.startswith('i-'):
                 settings.set(CONF_INSTANCE_IDS_KEY, body.strip())
@@ -166,8 +179,26 @@ class AwsSqsTaskProvider(TaskProvider):
                 if isinstance(body, str):
                     settings.set(CONF_INSTANCE_IDS_KEY, body.strip())
                 elif isinstance(body, dict):
-                    conf = body
-                    settings.merge(conf)
+                    if 'source' in body and 'detail' in body:
+                        # aws cloudwatch event
+                        if body['source'] == self.AWS_CHECK_SOURCE:
+                            ins_id = body['detail']['instance-id'] if 'instance-id' in body['detail'] else None
+                            if ins_id:
+                                # clean asset
+                                if 'state' in body['detail']:
+                                    if body['detail']['state'] == 'terminated':
+                                        self._task_workflow_cls = 'jumpserver_sync.workflow.AssetsCleanSync'
+                                settings.set(CONF_INSTANCE_IDS_KEY, ins_id)
+                            else:
+                                return None
+                        else:
+                            return None
+                    else:
+                        conf = body
+                        settings.merge(conf)
+            settings.set(CONF_PROVIDER_KEY, self.asset_provider)
+            if self.push_system_users:
+                settings.set(CONF_PUSH_SYSTEM_USERS_KEY, self.push_system_users)
             return settings
         return None
 
@@ -190,6 +221,13 @@ class AwsSqsTaskProvider(TaskProvider):
         :return:
         """
         return self.sqs_client.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt)
+
+    @property
+    def task_workflow_cls(self):
+        if self._task_workflow_cls:
+            return self._task_workflow_cls
+        else:
+            return self.DEFAULT_TASK_WORKFLOW_CLS
 
     @property
     def session(self):

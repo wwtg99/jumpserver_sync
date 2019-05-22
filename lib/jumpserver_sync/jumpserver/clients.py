@@ -1,6 +1,7 @@
 import logging
 import requests
 import time
+import re
 from hsettings import Settings
 from diskcache import Cache
 from jumpserver_sync.utils import JumpserverAuthError, CONF_BASE_URL_KEY, CONF_CACHE_DIR_KEY, CONF_CACHE_TTL_KEY, \
@@ -217,6 +218,8 @@ class JumpserverClient(CachedResource):
                 token = res['token'] if 'token' in res else None
                 if token:
                     self.set_cache(key=self.CACHE_TOKEN_KEY, value=token)
+            else:
+                logging.error('Login failed {}'.format(res.json()))
         return token
 
     def build_request(self, url, method='get', headers=None, params=None, data=None, json=None):
@@ -243,6 +246,7 @@ class JumpserverClient(CachedResource):
 class SystemUser(JumpserverClient):
 
     PASSED_FLAG = 'TASK [ping] \r\nok:'
+    PASSED_PATTERN = r'\sok:\s'
 
     resource = 'api/assets/v1/system-user'
 
@@ -298,7 +302,7 @@ class SystemUser(JumpserverClient):
             celery = Celery(settings=self.settings)
             time.sleep(3)  # sleep some time for job to start
             res = celery.is_task_finished(task_id=task_id, timeout=timeout, interval=interval, show_output=show_output)
-            if res and self.PASSED_FLAG in celery.output_log:
+            if res and (self.PASSED_FLAG in celery.output_log or re.search(self.PASSED_PATTERN, celery.output_log)):
                 return True
             return False
         else:
@@ -425,6 +429,7 @@ class Node(JumpserverClient):
 class Asset(JumpserverClient):
 
     PASSED_FLAG = 'TASK [ping] \r\nok:'
+    PASSED_PATTERN = r'\sok:\s'
 
     resource = 'api/assets/v1/assets'
 
@@ -458,7 +463,7 @@ class Asset(JumpserverClient):
             celery = Celery(settings=self.settings)
             time.sleep(3)  # sleep some time for job to start
             res = celery.is_task_finished(task_id=task_id, timeout=timeout, interval=interval, show_output=show_output)
-            if res and self.PASSED_FLAG in celery.output_log:
+            if res and (self.PASSED_FLAG in celery.output_log or re.search(self.PASSED_PATTERN, celery.output_log)):
                 return True
             return False
         else:
@@ -469,6 +474,7 @@ class Asset(JumpserverClient):
 class Celery(JumpserverClient):
 
     FINISH_FLAG = 'Task finished'
+    FINISH_FLAG2 = '任务结束'
 
     resource = 'api/ops/v1/celery/task'
 
@@ -511,7 +517,7 @@ class Celery(JumpserverClient):
                 self.output_log = res['data']
                 if show_output:
                     logging.info(res['data'])
-                if self.FINISH_FLAG in res['data'][-20:]:
+                if self.FINISH_FLAG in res['data'][-20:] or self.FINISH_FLAG2 in res['data'][-20:]:
                     return True
             time.sleep(interval)
             n += 1

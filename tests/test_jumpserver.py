@@ -14,6 +14,23 @@ from jumpserver_sync.providers.base import CompiledTag, TagSelector, AssetsProvi
 from jumpserver_sync.utils import *
 
 
+"""
+Test dependency
+
+Deploy a test server on domain test.jumpserver.com (change your hosts).
+Ensure username admin password admin is superuser (by default if you do not change).
+Add asset node Default/ops/prod.
+Add AWS SQS ops_test with no message for listening test.
+Configure your AWS profile.
+
+"""
+
+jumpserver_host = 'http://test.jumpserver.com'
+aws_profile_name = 'us-east-1_0066'
+aws_region_name = 'us-east-1'
+aws_sqs_url = 'https://sqs.us-east-1.amazonaws.com/006694404643/ops_test'
+
+
 class TestAsset:
 
     def test_instance_asset(self):
@@ -43,16 +60,16 @@ class TestProvider:
     def settings(self):
         return Settings({
             'jumpserver': {
-                'base_url': 'http://test.jumpserver.com',
+                'base_url': jumpserver_host,
                 'user': 'admin',
                 'password': 'admin',
                 'login_url': '/api/users/v1/auth/'
             },
             'profiles': {
-                'us0066': {
+                'test': {
                     'type': 'aws',
-                    'region_name': 'us-east-1',
-                    'profile_name': 'us-east-1_0066'
+                    'region_name': aws_region_name,
+                    'profile_name': aws_profile_name
                 }
             },
             'cache': {
@@ -84,14 +101,14 @@ class TestProvider:
                 }
             ],
             'listening': {
-                'us0066_sqs': {
+                'test_sqs': {
                     'type': 'sqs',
-                    'profile': 'us0066',
-                    'queue': 'https://sqs.us-east-1.amazonaws.com/006694404643/ops_test'
+                    'profile': 'test',
+                    'queue': aws_sqs_url
                 }
             },
             'app': {
-                'profile': 'us0066',
+                'profile': 'test',
             }
         })
 
@@ -188,7 +205,7 @@ class TestProvider:
         provider = 'aws'
         p = get_provider(settings=settings, provider_type='asset', provider_name=provider)
         assert isinstance(p, AssetsProvider)
-        assert p.profile.profile_name == 'us0066'
+        assert p.profile.profile_name == settings.get('app.profile')
         assert p.profile.profile_type == 'aws'
         assert len(p.get_tag_selectors()) == 1
         for i in range(len(p.get_tag_selectors())):
@@ -205,7 +222,7 @@ class TestProvider:
         provider = AwsAssetsProvider(settings=settings, provider_type='asset', provider_name='aws')
         asset_ids = []
         for a in provider.list_assets(limit=2):
-            assert a.account == 'us0066'
+            assert a.account == settings.get('app.profile')
             asset_ids.append(a.number)
         for a in provider.list_assets(asset_ids=asset_ids):
             assert a.number in asset_ids
@@ -214,15 +231,15 @@ class TestProvider:
         provider = 'sqs'
         p = get_provider(settings=settings, provider_type='task', provider_name=provider)
         assert isinstance(p, TaskProvider)
-        assert p.profile.profile_name == 'us0066'
+        assert p.profile.profile_name == settings.get('app.profile')
         assert p.profile.profile_type == 'aws'
 
     def test_aws_sqs_task_assets(self, settings):
         from jumpserver_sync.providers.aws import AwsSqsTaskProvider
         provider = AwsSqsTaskProvider(settings=settings, provider_type='task', provider_name='sqs')
-        queue_url = 'https://sqs.us-east-1.amazonaws.com/006694404643/ops_test'
+        queue_url = aws_sqs_url
         msg = 'i-12345678'
-        listen_provider = 'us0066_sqs'
+        listen_provider = 'test_sqs'
         conf = settings.get('{}.{}'.format(CONF_LISTEN_CONF_KEY, listen_provider))
         provider.configure(**conf)
         assert provider.queue_url == queue_url
@@ -243,16 +260,16 @@ class TestClient:
     def settings(self):
         return Settings({
             'jumpserver': {
-                'base_url': 'http://test.jumpserver.com',
+                'base_url': jumpserver_host,
                 'user': 'admin',
                 'password': 'admin',
                 'login_url': '/api/users/v1/auth/'
             },
             'profiles': {
-                'us0066': {
+                'test': {
                     'type': 'aws',
-                    'region_name': 'us-east-1',
-                    'profile_name': 'us-east-1_0066'
+                    'region_name': aws_region_name,
+                    'profile_name': aws_profile_name
                 }
             },
             'cache': {
@@ -284,7 +301,7 @@ class TestClient:
                 }
             ],
             'app': {
-                'profile': 'us0066'
+                'profile': 'test'
             }
         })
 
@@ -397,16 +414,16 @@ class TestAssetAgent:
     def settings(self):
         settings = Settings({
             'jumpserver': {
-                'base_url': 'http://test.jumpserver.com',
+                'base_url': jumpserver_host,
                 'user': 'admin',
                 'password': 'admin',
                 'login_url': '/api/users/v1/auth/'
             },
             'profiles': {
-                'us0066': {
+                'test': {
                     'type': 'aws',
-                    'region_name': 'us-east-1',
-                    'profile_name': 'us-east-1_0066'
+                    'region_name': aws_region_name,
+                    'profile_name': aws_profile_name
                 }
             },
             'cache': {
@@ -439,7 +456,7 @@ class TestAssetAgent:
                 }
             ],
             'app': {
-                'profile': 'us0066'
+                'profile': 'test'
             }
         })
         yield settings

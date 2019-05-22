@@ -1,4 +1,5 @@
 import logging
+import time
 from jumpserver_sync.assets import AssetAgent
 from jumpserver_sync.providers.base import get_provider, AssetsProvider, TaskProvider
 from jumpserver_sync.utils import *
@@ -141,6 +142,36 @@ class AssetsSync(Workflow):
             )
 
 
+class AssetsCheckSync(AssetsSync):
+
+    def sync_assets(self):
+        timeout = self.settings.get(CONF_CHECK_TIMEOUT_KEY)
+        interval = self.settings.get(CONF_CHECK_INTERVAL_KEY)
+        show_log = self.settings.get(CONF_SHOW_TASK_LOG_KEY)
+        profile = self.settings.get(CONF_PROFILE_KEY, None)
+        ins = self.settings.get(CONF_INSTANCE_IDS_KEY).split(',') \
+            if self.settings.get(CONF_INSTANCE_IDS_KEY, None) else None
+        jms_assets = []
+        # get all assets from Jumpserver by profile
+        for a in self.agent.list_assets():
+            if ins:
+                if a.number in ins:
+                    jms_assets.append(a)
+            else:
+                if profile:
+                    comment = a.extract_comment()
+                    if self.META_PROFILE_KEY in comment and comment[self.META_PROFILE_KEY] == profile:
+                        jms_assets.append(a)
+                else:
+                    jms_assets.append(a)
+        for a in jms_assets:
+            res = self.agent.check_assets_alive(asset_id=a.id, timeout=timeout, interval=interval, show_output=show_log)
+            if res:
+                logging.info('Instance {} alive'.format(a))
+            else:
+                logging.warning('Instance {} not alive'.format(a))
+
+
 class AssetsCleanSync(AssetsSync):
     """
     Clean assets in Jumpserver.
@@ -150,17 +181,23 @@ class AssetsCleanSync(AssetsSync):
 
     def sync_assets(self):
         jms_assets = []
+        del_assets = []
         profile = self.settings.get(CONF_PROFILE_KEY, None)
+        ins = self.settings.get(CONF_INSTANCE_IDS_KEY).split(',') \
+            if self.settings.get(CONF_INSTANCE_IDS_KEY, None) else None
         # get all assets from Jumpserver by profile
         for a in self.agent.list_assets():
-            if profile:
-                comment = a.extract_comment()
-                if self.META_PROFILE_KEY in comment and comment[self.META_PROFILE_KEY] == profile:
-                    jms_assets.append(a)
+            if ins:
+                if a.number in ins:
+                    del_assets.append(a)
             else:
-                jms_assets.append(a)
+                if profile:
+                    comment = a.extract_comment()
+                    if comment and self.META_PROFILE_KEY in comment and comment[self.META_PROFILE_KEY] == profile:
+                        jms_assets.append(a)
+                else:
+                    jms_assets.append(a)
         # check assets alive if not specify --all
-        del_assets = []
         if self.settings.get(CONF_INSTANCE_ALL_KEY, False) is False:
             timeout = self.settings.get(CONF_CHECK_TIMEOUT_KEY)
             interval = self.settings.get(CONF_CHECK_INTERVAL_KEY)
@@ -171,7 +208,7 @@ class AssetsCleanSync(AssetsSync):
                 if res is False:
                     del_assets.append(a)
         else:
-            del_assets = jms_assets
+            del_assets.extend(jms_assets)
         # assets to delete in Jumpserver
         del_num = 0
         for a in del_assets:
@@ -249,6 +286,7 @@ class AssetsListenSync(AssetsSync):
 
     def run(self):
         listen_provider = self.settings.get(CONF_LISTEN_PROVIDER_KEY, None)
+        listen_inv = self.settings.get(CONF_LISTEN_INTERVAL_KEY, None)
         while True:
             try:
                 for provider in self.get_task_provider(provider=listen_provider):
@@ -257,14 +295,19 @@ class AssetsListenSync(AssetsSync):
                             provider.finish_task(task=task)
                         else:
                             provider.fail_task(task=task)
+                    if listen_inv:
+                        time.sleep(listen_inv)
             except JumpserverError as e1:
                 logging.error(e1)
+                if listen_inv:
+                    time.sleep(listen_inv)
             except ImportError as e2:
                 logging.error(e2)
 
     def process_task(self, task):
         try:
-            workflow = AssetsSync(settings=task.task_settings)
+            workflow_cls = import_string(task.workflow_cls)
+            workflow = workflow_cls(settings=task.task_settings)
             workflow.run()
             return True
         except Exception as e:
@@ -278,12 +321,11 @@ class AssetsListenSync(AssetsSync):
             if 'type' not in conf:
                 raise JumpserverError('Invalid type in listening provider {}'.format(provider))
             name = conf['type']
-            del conf['type']
             if 'profile' not in conf:
                 raise JumpserverError('Invalid profile in listening provider {}'.format(provider))
             profile = conf['profile']
-            del conf['profile']
-            settings = self.settings.clone().set(CONF_PROFILE_KEY, profile)
+            settings = self.settings.clone()
+            settings.set(CONF_PROFILE_KEY, profile)
             p = get_provider(settings=settings, provider_type=self.PROVIDER_TYPE, provider_name=name)
             if isinstance(p, TaskProvider):
                 p.configure(**conf)

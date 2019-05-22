@@ -127,9 +127,10 @@ class Task:
     def __init__(self, task_settings, produced_by):
         self.task_settings = task_settings
         self.produced_by = produced_by
+        self.workflow_cls = None
 
     def __repr__(self):
-        return self.task_settings.as_dict()
+        return str(self.task_settings.as_dict())
 
 
 class BaseProvider:
