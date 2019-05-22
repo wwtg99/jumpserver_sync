@@ -1,4 +1,4 @@
-__prog__ = 'jumpsever_sync'
+__prog__ = 'jumpsever-sync'
 __version__ = '0.1.0'
 __author__ = 'wuwentao'
 __author_email__ = 'wwtg99@126.com'
