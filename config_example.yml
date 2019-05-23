@@ -36,7 +36,8 @@ tag_selectors:
       admin_user: admin_user
       domain: domain
       labels:
-        - label1
+      - Key: region
+        Value: {region}
       nodes:
         - node1
 # Listening configuration

@@ -31,8 +31,6 @@ jumpserver:
   user: ""
   # User password
   password: ""
-  # Login url
-  login_url: "/api/users/v1/auth/"
 # Cache configuration
 cache:
   # Cache directory
@@ -61,9 +59,10 @@ tag_selectors:
       admin_user: admin_user
       domain: domain
       labels:
-        - label1
+      - Key: region
+        Value: {region}
       nodes:
-        - node1
+      - node1
 # Listening configuration
 listensing:
     # listening provider name
@@ -79,6 +78,108 @@ listensing:
       # specify system_users to push, comma separated
       push_system_users: ""
 ```
+
+### Jumpserver 服务器配置
+
+```
+jumpserver:
+  # Jumpserver 的服务器路径, 类似 http://demo.jumpserver.com
+  base_url: ""
+  # 管理员用户名
+  user: ""
+  # 管理员密码
+  password: ""
+```
+
+### 缓存配置
+
+```
+cache:
+  # 缓存目录
+  dir: .jumpserver_cache
+  # 缓存时间（秒）
+  ttl: 60
+```
+
+### 日志配置
+
+```
+log:
+  # 日志级别
+  log_level: INFO
+  # 日志格式
+  log_formatter: "[%(levelname)s] %(asctime)s : %(message)s"
+```
+
+### 云服务账号配置
+
+```
+profiles:
+  # 账户名称
+  account1:
+    # 账户类型，可选： aws
+    type: aws
+    # 云服务配置，取决于使用的云服务商，使用 AWS 可以使用 profile_name, region_name, aws_access_key_id, aws_secret_access_key，具体含义可以参考 AWS 官方文档
+    region_name: cn-northwest-1
+    # 使用 profile_name 需要配置 access_key 和 secret 在 aws 的 profile 里
+    profile_name: cn-northwest-1_account1
+```
+
+### 标签选择器配置
+
+```
+tag_selectors:
+  - tags:
+    # 需要匹配的标签
+    - key: tag_name
+      value: tag_value
+    # 匹配标签后需要设置的属性, 支持变量的使用 {number}, {hostname}, {ip}, {public_ip}, {account}, {region}
+    attrs:
+      admin_user: admin_user
+      domain: domain
+      labels:
+      - Key: region
+        Value: {region}
+      nodes:
+      - node1
+```
+
+在 `tag_selectors` 中可以配置多个选择器，对每个发现的实例逐个匹配，当匹配一个选择器后，就应用选择器的属性设置修改实例的属性值，并添加到 Jumpserver 中，未匹配的实例不会添加。
+
+在 `tags` 中的 `key` 是实例标签的键，`value` 是实例标签的值，支持正则表达式，使用了 `re.match` 来匹配。
+例如，`key=Team value=t1` 能匹配 `key=Team value=t1`, `key=Team value=t111` 等实例，需要完全匹配需要使用 `value="^t1$"`。 
+
+在 `attrs` 中能设置替换的属性，支持如下变量替换
+- {number}: 实例 ID
+- {hostname}：实例 hostname，hostname 默认从实例的 Name 标签获取值
+- {ip}: 实例的内网 IP
+- {public_ip}: 实例的公网 IP
+- {account}：实例的云服务账户名称
+- {region}：实例的云服务区域
+
+也可以使用对应的资源名称，如 `admin_user: admin_user` 会查找 `name=admin_user` 的管理用户。
+
+注意，所有指定的资源（管理用户，系统用户，网域，标签，资源节点）必须事先创建好，如果不存在会插入失败。
+
+### 监听配置
+
+```
+listensing:
+    # 监听配置名称
+    test_sqs:
+      # 监听类型，支持 sqs
+      type: sqs
+      # 使用的云账户配置名称，关联上面的 profiles 配置中的项
+      profile: account1
+      # 指定推送系统用户的名称，默认全部
+      push_system_users: ""
+      # 对于 SQS 类型的配置
+      # queue 的 URL
+      queue: "queue_url"
+      # 最大接受消息数量，1 ～ 10
+      max_size: 1
+```
+
 
 ## 同步实例
 
