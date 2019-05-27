@@ -180,6 +180,12 @@ listensing:
       max_size: 1
 ```
 
+### 实例标签配置
+
+jumpserver-sync 提供了一些实例功能标签，这些标签影响实例能否被添加。
+
+- Name: 需要添加的实例必须有 Name 标签，这个标签用来生成实例的 hostname
+- jumpserver_ignore：当实例有`jumpserver_ignore`标签，且值为`true`时，实例会被忽略
 
 ## 同步实例
 
