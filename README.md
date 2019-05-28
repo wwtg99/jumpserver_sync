@@ -294,6 +294,35 @@ jumpserver_sync listen -c config.yml -l test_sqs
 
 当每次实例状态变化时（开启或关闭）即会向队列发送消息，在配置文件中配好对应的监听规则，即可启动监听。
 
+# Docker 中使用
+
+使用提供的 Dockerfile 构建镜像。
+
+```
+docker build -t jumpserver-sync:latest .
+```
+
+如果虚拟机或容器没有获取实例的权限，则需要用 key 的方式注入容器。
+准备好 profile 文件（用于授权获取实例的权限，如 AWS 的 access_key 和 secret。
+
+例如，AWS profile script
+
+```
+aws configure set aws_access_key_id AAAAAAAAAAAA --profile test
+aws configure set aws_secret_access_key SSSSSSSSS --profile test
+aws configure set region us-east-1 --profile test
+```
+
+同时需要准备 config.yml 配置文件。
+
+使用 docker 运行容器，并提供 profile 脚本和配置文件
+
+```
+docker run -d -e "AWS_PROFILE_SCRIPT=/opt/aws/.aws_profile.sh" -v .aws_profile.sh:/opt/aws/.aws_profile.sh -v config.yml:/opt/jms/config.yml jumpserver-sync:latest sync -c /opt/jms/config.yml
+```
+
+`AWS_PROFILE_SCRIPT`环境变量用于指定 profile 脚本的路径。
+
 # 测试
 
 测试需要配置一个测试环境：

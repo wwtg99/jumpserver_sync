@@ -1,5 +1,5 @@
 FROM python:3.6
-MAINTAINER wuwentao <wwtg99@126.com>
+MAINTAINER wuwentao <wuwentao@patsnap.com>
 
 RUN pip install awscli jumpserver-sync
 COPY entrypoint.sh /entrypoint.sh
