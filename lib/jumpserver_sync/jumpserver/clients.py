@@ -326,7 +326,6 @@ class SystemUser(JumpserverClient):
         :param force_push:
         :return:
         """
-        celery = Celery(settings=self.settings)
         tries = 0
         while tries < max_tries:
             if force_push or not self.is_checked(
