@@ -4,8 +4,8 @@ import time
 import re
 from hsettings import Settings
 from diskcache import Cache
-from jumpserver_sync.utils import JumpserverAuthError, CONF_BASE_URL_KEY, CONF_CACHE_DIR_KEY, CONF_CACHE_TTL_KEY, \
-    CONF_LOGIN_URL_KEY, CONF_USER_KEY, CONF_PWD_KEY
+from jumpserver_sync.utils import JumpserverAuthError, CONF_BASE_URL_KEY, CONF_CACHE_DIR_KEY, \
+    CONF_CACHE_TTL_KEY, CONF_LOGIN_URL_KEY, CONF_USER_KEY, CONF_PWD_KEY
 
 
 class RestfulResource:
@@ -247,6 +247,7 @@ class SystemUser(JumpserverClient):
 
     PASSED_FLAG = 'TASK [ping] \r\nok:'
     PASSED_PATTERN = r'\sok:\s'
+    ERROR_FLAG = 'ObjectDoesNotExist'
 
     resource = 'api/assets/v1/system-user'
 
@@ -302,8 +303,11 @@ class SystemUser(JumpserverClient):
             celery = Celery(settings=self.settings)
             time.sleep(3)  # sleep some time for job to start
             res = celery.is_task_finished(task_id=task_id, timeout=timeout, interval=interval, show_output=show_output)
-            if res and (self.PASSED_FLAG in celery.output_log or re.search(self.PASSED_PATTERN, celery.output_log)):
-                return True
+            if res:
+                if self.PASSED_FLAG in celery.output_log or re.search(self.PASSED_PATTERN, celery.output_log):
+                    return True
+                elif self.ERROR_FLAG in celery.output_log:
+                    return None  # skip because can not push system_user to asset
             return False
         else:
             logging.warning('Failed to check system_user {} to asset {} connective'.format(uid, asset_id))
@@ -332,11 +336,17 @@ class SystemUser(JumpserverClient):
                 task_id = task['task'] if 'task' in task else None
                 if task_id:
                     time.sleep(3)  # sleep some time for job to start
-                    res = celery.is_task_finished(task_id=task_id, timeout=timeout, interval=interval,
-                                                  show_output=show_output)
-                    if res and self.is_checked(
-                            uid=uid, asset_id=asset_id, timeout=timeout, interval=interval, show_output=show_output):
+                    check = self.is_checked(
+                        uid=uid,
+                        asset_id=asset_id,
+                        timeout=timeout,
+                        interval=interval,
+                        show_output=show_output
+                    )
+                    if check is True:
                         return True
+                    elif check is None:
+                        break
                 else:
                     logging.warning('Failed to push system_user {} to asset {}'.format(uid, asset_id))
             else:
