@@ -248,7 +248,7 @@ class AssetsSmartSync(AssetsSync):
         for a in self.agent.list_assets():
             jms_assets.append(a)
             comment = a.extract_comment()
-            if self.META_PROFILE_KEY in comment and comment[self.META_PROFILE_KEY] == profile:
+            if comment and self.META_PROFILE_KEY in comment and comment[self.META_PROFILE_KEY] == profile:
                 jms_assets_number[a.number] = len(jms_assets) - 1
         # assets to add to Jumpserver
         assets_to_add = [provider_assets[i] for n, i in provider_assets_number.items() if n not in jms_assets_number]
