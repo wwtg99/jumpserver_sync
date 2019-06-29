@@ -3,7 +3,7 @@ Jumpserver Sync Tool
 
 # 简介
 
-Jumpserver 是开源的多云环境的堡垒机，可以用于管理和登陆各个来源的实例。但是使用 Jumpserver 必须手动添加实例到系统，对于经常开关的集群不太方便。此工具用于将多云平台的实例快速添加到 Jumpserver 中，实现自动同步多云平台的实例。
+[Jumpserver](https://github.com/jumpserver/jumpserver) 是开源的多云环境的堡垒机，可以用于管理和登陆各个来源的实例。但是使用 Jumpserver 必须手动添加实例到系统，对于经常开关的集群不太方便。此工具用于将多云平台的实例快速添加到 Jumpserver 中，实现自动同步多云平台的实例。
 
 目前支持的云服务：
 - AWS
